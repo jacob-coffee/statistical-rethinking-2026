@@ -1,0 +1,92 @@
+---
+title: "Statistical Rethinking Ch. 2"
+author: "Jacob Longmeyer"
+date: "2026-01-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Many things are needed for setup:
+```{r}
+library(rstan)
+library(coda)
+library(mvtnorm)
+library(devtools)
+library(dagitty)
+library(rethinking)
+library(ggdist)
+
+##apparently I was successful in downloading it
+##devtools::install_github("rmcelreath/rethinking")
+```
+
+
+# In Text Examples
+
+```{r}
+#define grid
+p_grid <- seq( from=0, to=1, length.out=100)
+
+#define prior, with alternative priors
+prior <- rep(1,20)
+prior <- ifelse( p_grid <0.5, 0, 1)
+prior <- exp( -5*abs(p_grid - 0.5))
+
+#compute likelihood at each value in grid
+likelihood <- dbinom( 6, size = 9, prob=p_grid)
+
+#compute product of likelihood and prior
+unstd.posterior <-  likelihood * prior
+
+#standardize the posterior, so it sum to 1
+posterior <- unstd.posterior / sum(unstd.posterior)
+
+#display post dist
+plot(p_grid, posterior, type="b",
+     xlab = "probability of water", ylab="posterior probability")
+mtext("20 points")
+```
+
+some more calls to action that I didn't do
+asking to practice using different priors
+asking to practice using different numbers of grid points
+
+
+I was curious about this, so look below:
+```{r}
+###prove that the logarithm of a normal (Gaussian) distribution is a parabola,
+#described by the quadratic equation (a la Chat GPT)
+# Normal curve
+x <- seq(-4, 4, length=100)
+f <- dnorm(x, mean=0, sd=1)
+plot(x, f, type='l', main='Normal Distribution')
+
+# Log-Normal curve
+logf <- log(f)
+plot(x, logf, type='l', main='Log of Normal Distribution') # <-- Looks like a parabola
+```
+
+Quadratic Approximation Method
+```{r}
+###R Code 2.6
+globe.qa <- quap(
+  alist(
+    W ~ dbinom( W+L, p) , #binomial likelihood
+    p ~ dunif(0,1)        #uniform prior
+  ) ,
+data=list(W=6, L=3))
+
+#display summary of quadratic approximation
+precis(globe.qa)
+```
+
+To use quap, you provide a formula, a list of data. The formula defines the probability of the data and the prior. This will be revisited in Ch. 4.
+
+In the example above, the posterior mean value of p = 0.67, which it calls the mean. The curvatur is labeled StdDev, or the standard deviation, which is enough to define the Gaussian dist.
+
+There is some more code in the book that I haven't included or done due to time constraint.Look at Figure 2.8.
+
+Also didn't get to the code for MCMC technhiques, which is in code blocks 2.8 and 2.9.
