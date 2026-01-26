@@ -1,0 +1,352 @@
+---
+title: "stat_rethinking_ch3"
+author: "Jacob Longmeyer"
+date: "2026-01-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rethinking)
+```
+
+# Sampling the Imaginary
+Oftentimes we will want to draw samples from the posterior, because it makes a lot of the summary statistics and other things easier, instead of doing complicated math. Below is code that creates a posterior and then samples from it, which we can do things with later.
+
+```{r}
+p_grid <- seq(from = 0, to = 1, length.out = 1000)
+prob_p <- rep(1,1000)
+prob_data <- dbinom(6, size = 9, prob = p_grid)
+posterior <- prob_data * prob_p
+posterior <- posterior / sum(posterior)
+
+#sample with replacement
+samples <- sample(p_grid, prob = posterior, size = 1e4, replace = TRUE)
+
+#sequential draws plot
+plot(samples)
+
+#density estimate computed from samples
+dens(samples)
+```
+
+
+# Summarizing the Posterior
+
+## Intervals of Defined Boundaries
+
+```{r}
+# add up posterior prob where p < 0.5
+sum(posterior[ p_grid < 0.5])
+
+#doing the same thing but with the samples
+sum( samples < 0.5) / 1e4
+
+sum (samples > 0.5 & samples < 0.75) / 1e4
+```
+
+## Intervals of Defined Mass
+This book uses the term compatibility interval, to avoid things like "confidence" and "credibility" because ultimately the confidence and credibility are based on the accuracy of the small world assumptions to the large world reality, so it's more based on whether or not you did good thinking and good science, not the statistics.
+
+```{r}
+#where is the 80th percentile in the data?
+quantile( samples , 0.8)
+
+# where are the 10th and 90th percentiles?
+quantile( samples, c(0.1, 0.9))
+```
+
+
+## Percentile Intervals
+set up
+```{r}
+p_grid <- seq(from = 0, to = 1, length.out = 1000)
+prob_p <- rep(1,1000)
+prob_data <- dbinom(3, size = 3, prob = p_grid)
+posterior <- prob_data * prob_p
+posterior <- posterior / sum(posterior)
+
+#sample with replacement
+samples <- sample(p_grid, prob = posterior, size = 1e4, replace = TRUE)
+```
+
+Percentile Intervals assign equal probability mass to each tail, and are the standard in the scientific literature. Oftentimes it is a good way to visualize the shape of the distribution (assuming it is normal), but in cases like above, where it is not normal at all, it can be very misleading and also not very useful.
+
+An alternative for dists like this is to do the Highest Probability Denstiy Interval, or HPDI, part of the rethinking package.
+```{r}
+PI(samples, prob = 0.5) #typical, equalizes tails
+HPDI(samples, prob = 0.5)
+```
+HPDI is more prone to simulation variance and is also more computationally intensive. Also, it may not be super useful at all, since at the end of the day, best practice is to just present the entire distribution. 
+
+## Point Estimates
+oftentimes the mode, median, or mean, but which one is best is heavily dependent on context. Very common to report the highest posterior probability, a maximum a posteriori (MAP) estimate. This is basically just the mode.
+```{r}
+# from posterior
+p_grid[which.max(posterior)]
+
+# from sampling
+chainmode(samples, adj = 0.01)
+mean(samples)
+median(samples)
+```
+
+A principled way to choose an estimate is by minimizing the loss function. The book has an arbitrary example using the globe tossing example, but I did not reiterate it here. Two common examples of loss functions are absolute loss, which leads to the median as the point estimate, and the quadratic loss, which leads to the posterior mean as the point estimate.
+
+# Sampling to simulate prediction
+
+We will want to simulate data that the model implies. 
+1) We can samples from the prior AND the posterior to look at how it changes after new data.
+2) We can use it to check the model.
+3) We can use it to assess quality of research design, like power analyses.
+4) forecasting predictions for future cases and observations.
+
+```{r}
+dummy_w <- rbinom(1e5, size = 9, prob = 0.7)
+simplehist(dummy_w, xlab = "dummy water count")
+```
+
+Importantly, this sampling uses just one point estimate derived from our posterior distribution. However, we want to be able to combine sampling of simulated observations with sampling parameters from the posterior distribution.
+There is observation uncertainty, i.e. even if you know p, you still cannot predict if the observation will be W or L. There is also uncertainty in p. We need to propagate this uncertainty.
+By sampling while incorporating both levels of uncertainty, we produce a posterior predictive distribution. To do this in R:
+
+```{r}
+p_grid <- seq(from = 0, to = 1, length.out = 1000)
+prob_p <- rep(1,1000)
+prob_data <- dbinom(7, size = 10, prob = p_grid)
+posterior <- prob_data * prob_p
+posterior <- posterior / sum(posterior)
+
+samples <- sample(p_grid, prob = posterior, size = 1e4, replace = TRUE)
+w <- rbinom( 1e4, size = 9, prob = samples)
+
+plot(samples)
+dens(samples)
+simplehist(w)
+```
+
+We do not end here. This model assumes independence between globe tosses, but this is not necessarily true. To check this, we can look at the longest run length (number of W's or L's in a row) and number of switches between W and L to see if we find patterns or suspicious things. We can compare the simulated data to the actual observed data.
+
+
+# Problem Set
+```{r}
+p_grid <- seq( from = 0, to = 1, length.out = 1000)
+prior <- rep(1, 1000)
+likelihood <- dbinom(6, size = 9, prob = p_grid)
+posterior <- likelihood * prior
+posterior <- posterior / sum(posterior)
+set.seed(100)
+samples <- sample(p_grid, prob = posterior, size = 1e4, replace = TRUE)
+```
+
+## 3E1.
+```{r}
+sum(posterior[p_grid < 0.2])
+#0.00086
+
+sum(samples < 0.2) / 1e4
+#0.0004
+```
+
+## 3E2.
+```{r}
+sum(posterior[p_grid > 0.8])
+#0.120
+
+sum(samples > 0.8) / 1e4
+#0.1116
+```
+
+## 3E3.
+```{r}
+sum(posterior[0.2 < p_grid & p_grid < 0.8])
+#0.879
+
+sum(0.2 < samples & samples < 0.8) / 1e4
+#0.888
+
+plot(y = posterior, x = p_grid)# looks like it makes sense with our answers
+
+dens(samples)
+hist(samples)
+```
+
+## 3E4.
+```{r}
+quantile(samples, probs = 0.2)
+#0.519
+```
+
+## 3E5.
+```{r}
+quantile(samples, probs = 0.8)
+#0.756
+```
+
+## 3E6. & 3E7.
+```{r}
+HPDI(samples, prob = 0.66)
+#0.509 to 0.774
+
+PI(samples, prob = 0.66)
+#0.503 to 0.770
+#just barely a larger interval than HPDI, by 0.002
+
+plot(y = posterior, x = p_grid)# looks like it makes sense with our answers
+abline(v = c(0.509, 0.774))
+```
+
+## 3M1.
+```{r}
+prior <- rep(1,1000)
+p_grid <- seq(from = 0, to = 1, length.out = 1000)
+likelihood <- dbinom(8, size = 15, prob = p_grid)
+posterior <- likelihood * prior
+posterior <- posterior / sum(posterior)
+
+plot(x = p_grid, y = posterior)
+```
+
+## 3M2.
+```{r}
+samples <- sample(x = p_grid, size = 1e4, replace = TRUE, prob = posterior)
+
+hist(samples)
+dens(samples)
+
+HPDI(samples, prob = 0.9)
+#0.330 to 0.715
+```
+
+## 3M3.
+```{r}
+samples2 <- rbinom(1e4, size = 15, prob = samples)
+hist(samples2)
+sum(samples2 == 8) / 1e4 #14.1% chance of getting 8/15 
+```
+
+## 3M4.
+```{r}
+samples3 <- rbinom(1e4, size = 9, prob = samples)
+hist(samples3)
+sum(samples3 == 6) / 1e4 #18.3% chance of getting 6/9
+```
+
+## 3M5.
+```{r}
+new_prior <- ifelse(p_grid < 0.5, 0, 1)
+p_grid <- seq(from = 0, to = 1, length.out = 1000)
+likelihood <- dbinom(8, size = 15, prob = p_grid)
+posterior <- likelihood * prior
+posterior <- posterior / sum(posterior)
+plot(x = p_grid, y = posterior)
+
+samples <- sample(x = p_grid, size = 1e4, replace = TRUE, prob = posterior)
+hist(samples)
+dens(samples)
+HPDI(samples, prob = 0.9)
+#0.501 to 0.711
+
+samples2 <- rbinom(1e4, size = 15, prob = samples)
+hist(samples2)
+sum(samples2 == 8) / 1e4 #16.0% chance of getting 8/15 
+
+samples3 <- rbinom(1e4, size = 9, prob = samples)
+hist(samples3)
+sum(samples3 == 6) / 1e4 #23.6% chance of getting 6/9
+
+samples4 <- rbinom(1e4, size = 10, prob = samples)
+sum(samples4 == 7) / 1e4 
+#14.3% with old prior
+#14.7% with new prior
+```
+There is a better chance of getting the correct proportion under the new prior versus the old prior. Not totally sure of the best way to assess other than what I did though.
+
+## 3M6.
+```{r}
+tosses <- 2200
+obs <- rbinom(1, size = tosses, prob = 0.7)
+
+prior <- rep(1,1000)
+p_grid <- seq(from = 0, to = 1, length.out = 1000)
+likelihood <- dbinom(obs, size = tosses, prob = p_grid)
+posterior <- likelihood * prior
+posterior <- posterior / sum(posterior)
+
+samples <- sample(x = p_grid, size = 1e4, replace = TRUE, prob = posterior)
+
+int <- PI(samples, prob = 0.99)
+diff <- int[2] - int[1]
+
+print(diff)
+
+```
+
+99% percentile interval must be 0.05 wide
+how many times must you toss the globe?
+
+This is a non-elegant way, where I just replaced tosses with a new number and re-ran the code block until it came out with a good number.
+
+## 3H1.
+
+```{r}
+library(rethinking)
+data(homeworkch3)
+birth1
+birth2
+sum(birth1) + sum(birth2)
+```
+
+```{r}
+p_grid <- seq(from = 0, to = 1, length.out = 1000)
+prior <- rep(1, 1000)
+likelihood <- dbinom(x = sum(birth1) + sum(birth2), size = length(birth1) + length(birth2), prob = p_grid)
+posterior <- prior * likelihood
+posterior <- posterior / sum(posterior)
+
+plot(x = p_grid, y = posterior)
+which.max(posterior) #555
+p_grid[555] #55.4% chance of a boy
+```
+
+## 3H2.
+```{r}
+samples <- sample(x = p_grid, size = 1e4, replace = TRUE, prob = posterior)
+
+HPDI(samples, prob = 0.50)
+HPDI(samples, prob = 0.89)
+HPDI(samples, prob = 0.97)
+```
+
+## 3H3.
+```{r}
+sim <- rbinom(n = 1e4, size = 200, prob = samples)
+
+dens(sim)
+abline(v = 111, col = "red", lwd = 2)
+```
+
+## 3H4.
+```{r}
+sim2 <- rbinom(n = 1e4, size = 100, prob = samples)
+
+dens(sim2)
+abline(v = sum(birth1), col = "red", lwd = 3)
+abline(v = sum(birth2), col = "blue", lwd = 3)
+abline(v = 111/2, col = "yellow", lwd = 3)
+```
+
+## 3H5.
+```{r}
+gurlzfirst <- (birth2[birth1 == 0])
+length(gurlzfirst) #49, number of cases where girl is first born
+sum(gurlzfirst) #39, number of cases where it is older sister, younger brother
+
+sim3 <- rbinom(n = 1e4, size = 49, prob = samples)
+
+hist(sim3)
+abline(v = 39, col = "red", lwd = 3)
+```
+assumption that births are independent is violated
+
+
