@@ -1,0 +1,687 @@
+---
+title: "stat_rethinking_ch4"
+author: "Jacob Longmeyer"
+date: "2026-01-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(rethinking)
+```
+
+# In-text Examples
+```{r}
+pos <- replicate(1000, sum(runif(16, -1, 1)))
+
+hist(pos)
+dens(pos)
+plot(density(pos))
+```
+
+```{r}
+prod(1 + runif(12, 0, 0.1))
+
+growth <- replicate( 10000, prod(1 + runif(12, 0 ,0.1)))
+dens(growth, norm.comp=TRUE)
+```
+
+multiplying together small effects is approximately additive
+random fluctuation around additive effects will result in normality
+
+```{r}
+big <- replicate( 10000, prod( 1 + runif(12, 0 , 0.5)))
+small <- replicate( 10000, prod( 1 + runif(12, 0 , 0.1)))
+dens(big, norm.comp = TRUE)
+dens(small, norm.comp = TRUE)
+```
+When multiplicative effects get larger, the approximation breaks down
+However, large deviates multiplied together do produce Gaussian distributions on the log scale:
+```{r}
+log.big <- replicate(10000, log(prod(1 + runif(12, 0 , 0.5))))
+dens(log.big, norm.comp = TRUE)
+```
+
+Adding logs is equivalent to multiplying the original numbers.
+Measurement scales are arbitrary, so there's nothing suspicious happening during this transformation.
+
+Gaussian distributions cannot reliably identify micro-process, since many different processes result in the same end distribution.
+Gaussian dist is member of a family of fundamental natural distributions known as the exponential family. 
+
+Epistemologically, the Gaussian represents a particular state of ignorance. When we are only willing to say the mean and variance, then the Gaussian arises as the most consisten with our assumptions. The Gaussian dist is the shape that can be realized in the largest number of ways. This relies on information theory and maximum entropy, which are detailed later in the book.
+
+Probability distributions with discrete outcomes are called probability mass functions and denoted Pr. Like binomial.
+Continous functions like Gaussian are probability density functions, denoted with p or f.
+```{r}
+dnorm(0,0,0.1)
+```
+
+Probability density is the height of the curve, which can easily exceed 1 when the sd is low. However the area under the curve will always sum to 1. Calculating area under the curve is probability mass.
+
+In Bayesian stats, it is common to replace sigma with tau. tau is called precision and is defined as tau = 1/sigma squared. Large variance results in small tau (precision) and vice versa.
+Alternatively, sigma = 1 / sqrt(tau)
+
+## Language for describing models
+Observable variables are called data. Unobservable things like rates and averages are parameters.
+Each variable is defined in terms of other variable or in terms of probability dist.
+Combination of variables and their prob dists defines a joint generative model to simulate hypothetical observations and to analyze real ones.
+
+```{r}
+w <- 6; n <- 9;
+p_grid <- seq(from = 0, to = 1, length.out = 100)
+posterior <- dbinom(w,n,p_grid) * dunif(p_grid, 0, 1)
+posterior <- posterior / sum(posterior)
+
+plot(x = p_grid, y = posterior)
+```
+
+## Gaussian Model of Height
+```{r}
+data(Howell1)
+d <- Howell1
+precis(d)
+
+d$height
+d2 <- d[d$age >=18, ]
+
+dens(d2$height)
+```
+
+IID means independent and identically distributed. It is often an epistemological assumption, and not one of the physical world (ontological).
+
+```{r}
+curve(dnorm(x, 178, 20), from = 100, to = 250)
+curve(dunif(x, 0, 50), from = -10, to = 60)
+```
+sampling priors for prior predictive simulation
+```{r}
+sample_mu <- rnorm(1e4, 178, 20)
+sample_sigma <- runif(1e4, 0, 50)
+prior_h <- rnorm(1e4, sample_mu, sample_sigma)
+dens(prior_h)
+
+sample_mu <- rnorm(1e4, 178, 100)
+prior_h <- rnorm(1e4, sample_mu, sample_sigma)
+dens(prior_h)
+```
+Having a prior with a much larger sd of 100 results in a nonsensical distribution o relative plausbilities of heights, as it predicts a lot of individuals with negative height and heights taller than the tallest known human. Priors should be informative and assist in the final prediction according to scientific knowledge. Only base it on what you know about the data before you see it.
+
+```{r}
+mu.list <- seq( from = 150, to=160, length.out=100)
+sigma.list <- seq(from=7, to=9, length.out=100)
+post <- expand.grid(mu=mu.list, sigma=sigma.list)
+post$LL <- sapply(1:nrow(post), function(i) sum(
+  dnorm(d2$height, post$mu[i], post$sigma[i], log = TRUE)
+))
+post$prod <- post$LL + dnorm( post$mu, 178, 20, TRUE) +
+  dunif(post$sigma, 0, 50, TRUE)
+post$prob <- exp(post$prod - max(post$prod))
+```
+
+```{r}
+contour_xyz(post$mu, post$sigma, post$prob)
+image_xyz(post$mu, post$sigma, post$prob)
+```
+
+```{r}
+sample.rows <- sample(1:nrow(post), size=1e4, replace=TRUE,
+                      prob = post$prob)
+sample.mu <- post$mu[sample.rows]
+sample.sigma <- post$sigma[sample.rows]
+
+plot(sample.mu, sample.sigma, cex = 0.5, pch = 16, col = col.alpha(rangi2,0.1))
+```
+
+```{r}
+dens(sample.mu)
+dens(sample.sigma)
+
+PI(sample.mu)
+PI(sample.sigma)
+```
+
+```{r}
+d3 <- sample(d2$height, size = 20)
+mu.list <- seq( from = 150, to=170, length.out=200)
+sigma.list <- seq(from=4, to=20, length.out=200)
+post2 <- expand.grid(mu=mu.list, sigma=sigma.list)
+post2$LL <- sapply(1:nrow(post2), function(i) sum(
+  dnorm(d3, post2$mu[i], post2$sigma[i], log = TRUE)
+))
+post2$prod <- post2$LL + dnorm( post2$mu, 178, 20, TRUE) +
+  dunif(post2$sigma, 0, 50, TRUE)
+post2$prob <- exp(post2$prod - max(post2$prod))
+
+sample2.rows <- sample(1:nrow(post2), size=1e4, replace=TRUE,
+                      prob = post2$prob)
+sample2.mu <- post2$mu[sample2.rows]
+sample2.sigma <- post2$sigma[sample2.rows]
+
+plot(sample2.mu, sample2.sigma, cex = 0.5, 
+     pch = 16, col = col.alpha(rangi2,0.1),
+     xlab = "mu", ylab = "sigma")
+
+dens(sample2.sigma, norm.comp = TRUE)
+```
+
+Especially for smaller samples, standard deviations will often have long right-hand tail, in short because we know sd needs to be >0, so there is less uncertainty in the left hand side compared to the right
+
+Now moving on to quadratic approximation, using quap function
+```{r}
+library(rethinking)
+data(Howell1)
+d <- Howell1
+d2 <- d[d$age >=18,]
+```
+
+```{r}
+flist <- alist(
+  height ~ dnorm(mu, sigma) ,
+  mu ~ dnorm( 178, 20) ,
+  sigma ~ dunif(0, 50)
+)
+
+m4.1 <- quap(flist, data=d2)
+precis(m4.1)
+
+vcov(m4.1) #variance covariance matrix
+
+#decomposition of the matrix
+diag(vcov(m4.1))#the list of variances, their square root results in the precis output
+cov2cor(vcov(m4.1)) 
+```
+
+This provides Gaussian approximations for each parameter's marginal distribution. 
+This means the plausbility of each value of mu, after averaging over the plausibilities of each value of sigma, is given by a Gaussian distribution with mean 154.6 over sd 0.4.
+
+To get samples from this quap, we can use a function in the rethinking package
+```{r}
+post <- extract.samples(m4.1, n=1e4)
+head(post)
+precis(post) #very close to the distribution they're drawn from
+plot(post)
+```
+the extract.samples function uses mvrnorm(), multivariate rnorm, to simulate random vectors of multivariate Gaussian values.
+It uses the variance-covariance matrix to know how change in mu might affect the resulting sigma
+
+```{r}
+plot(d2$height ~ d2$weight)
+```
+
+```{r}
+set.seed(2971)
+N <- 100 # 100 lines
+a <- rnorm(N, 178, 20)
+b <- rnorm(N, 0, 10)
+
+plot(NULL, xlim=range(d2$weight), ylim=c(-100,400),
+     xlab="weight", ylab = "height")
+abline(h=0, lty=2)
+abline(h=272, lty=1, lwd=0.5)
+mtext("b ~ dnorm(0,10)")
+xbar <- mean(d2$weight)
+for(i in 1:N) curve( a[i] + b[i]*(x - xbar),
+                     from=min(d2$weight), to=max(d2$weight), add = TRUE,
+                     col=col.alpha("black", 0.2))
+```
+
+```{r}
+b <- rlnorm(1e4, meanlog = 0,sdlog = 1)
+dens(b, xlim=c(0,5), adj = 0.1)
+```
+log-normal priors are an easy way to enforce positive relationships
+
+```{r}
+set.seed(2971)
+N <- 100 # 100 lines
+a <- rnorm(N, 178, 20)
+b <- rlnorm(N, 0, 1)
+
+plot(NULL, xlim=range(d2$weight), ylim=c(-100,400),
+     xlab="weight", ylab = "height")
+abline(h=0, lty=2)
+abline(h=272, lty=1, lwd=0.5)
+mtext("b ~ dnorm(0,10)")
+xbar <- mean(d2$weight)
+for(i in 1:N) curve( a[i] + b[i]*(x - xbar),
+                     from=min(d2$weight), to=max(d2$weight), add = TRUE,
+                     col=col.alpha("black", 0.2))
+```
+
+```{r}
+library(rethinking)
+data(Howell1); d <- Howell1; d2 <- d[d$age >= 18,]
+
+#define the average weight, x-bar
+xbar <- mean(d2$weight)
+
+# fit model
+m4.3 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b*(weight - xbar),
+    a ~ dnorm(178, 20),
+    b ~ dlnorm(0,1),
+    sigma ~ dunif(0,50)
+  ), data = d2
+)
+```
+
+YOu can usefully think of y = log(x) as assigning to y the order of magnitude of x. The function x = exp(y) is the reverse, turning a magnitude into a value. 
+
+If I understand correctly, it means that generally some decimal will have a negative y value because its magnitude is small. If it is a large number, it will have a positive y because its magnitude is large. log(1) = 0, and that's the inflection point.
+
+Statistical models can be processed or reported by reading tables or plotting simulations. Generally, reading tables is very difficult to do, so the book recommends plotting simulations, which are more intuitive and clear, thus more helpful.
+THe meaning of parameters is not always clear either. Posterior probabilities of parameter values describe the relative compatibility of different states of the world with the data, according to the model. These are small world numbers.
+
+```{r}
+precis(m4.3)
+
+round(vcov(m4.3), 3)
+
+pairs(m4.3)
+```
+
+```{r}
+plot(height ~ weight, data = d2, col = rangi2)
+post <- extract.samples(m4.3)
+a_map <- mean(post$a)
+b_map <- mean(post$b)
+curve(a_map + b_map*(x - xbar), add = TRUE)
+```
+this line does a poor job of communicating uncertainty. remember, the posterior dist considers every possible regression line connecting height to weight, and assigns a relative plausbility to each.
+
+```{r}
+post <- extract.samples(m4.3)
+post[1:5,]
+```
+each sample of m4.3 is an a, b, and sigma, describing a line, sampled according to the vcov matrix
+
+plotting N number lines from sample
+```{r}
+N <- 50
+dN <- d2[1:N, ]
+mN <- quap(
+  alist(
+    height ~ dnorm(mu, sigma) ,
+    mu <- a + b*(weight - mean(weight)) , 
+    a ~ dnorm( 178, 20), 
+    b ~ dlnorm(0 , 1) , 
+    sigma ~ dunif(0, 50)
+  ) , data = dN
+)
+
+#extract 20 samples from posterior
+post <- extract.samples( mN, n = 20)
+
+# display raw data and sample size
+plot( dN$weight, dN$height ,
+      xlim=range(d2$weight), ylim=range(d2$height),
+      col = rangi2, xlab = "weight", ylab = "height")
+mtext(concat("N = ", N))
+
+#plot the lines, with transparency
+for(i in 1:20)
+  curve(post$a[i] + post$b[i]*(x - mean(dN$weight)),
+        col = col.alpha("black", 0.3), add = TRUE)
+```
+
+```{r}
+post <- extract.samples(m4.3)
+mu_at_50 <- post$a + post$b * (50 - xbar)
+
+hist(mu_at_50)
+PI(mu_at_50, prob = 0.89)
+```
+adding Gaussian distributions always produces a Gaussian distribution. mu is composed of two Gaussian distributed parameters, a and b
+
+```{r}
+mu <- link(m4.3)
+str(mu)
+```
+the link() function takes a quap approximation, samples from the posterior dist, and computed mu for each case in the data and sample from the post dist. 
+
+```{r}
+#define sequence of weights to compute predictions for 
+#these values will be on the horizontal axis
+weight.seq <- seq(from = 25, to = 70, by = 1)
+
+#use link to compute mu for each sample from posterior
+#and for each weight in weight.seq
+mu <- link(m4.3, data = data.frame(weight = weight.seq))
+str(mu)
+
+#use type="n" to hide raw data
+plot(height ~ weight, d2, type = "n")
+#loop over sampels and plot each mu value
+for (i in 1:50)
+  points(weight.seq, mu[i,], pch = 16, col = col.alpha(rangi2, 0.1))
+
+#summarize the distribution of mu
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI, prob = 0.89)
+```
+
+```{r}
+#plot raw data
+# fading out points to make line and interval more visible
+plot(height ~ weight, data = d2, col = col.alpha(rangi2, 0.5))
+
+#plot the MAP line, aka the mean mu for each weight
+lines(weight.seq, mu.mean)
+
+#plot a shaded region for 89% PI
+shade(mu.PI, weight.seq)
+```
+
+General Process for generating predictions and intervals from the posterior of a fit model.
+1) Use link() to generate distributions of posterior values for mu. The default behavior of link() is to use the original data, so you have ot pass it a list of new horizontal axis values you want ot plot posterior predictions across.
+2) Use summary functions like mean or PI to find averages and lower nad upper bounds of mu for each value of the predictor variable.
+3) Finally, using plotting functions like lines() and shade() to draw the lines and intervals. Or you might plot the distributions of the predictions, or do further numerical calculations with them. Up to you.
+
+Keep in mind that that inferences are always conditional on the model. Conditional on the assumption that height and weight are related by a straight line, then this is the most plausible line, and these are its plausible bounds.
+
+extract.samples uses mvrnorm() to simulate random vectors of multivariate Gaussian values.
+
+Below is a look at how the function link() works. It just takes the formula provided when fitting the model and then computes the value of the linear model for each sample from the post dist. 
+```{r}
+post <- extract.samples(m4.3)
+mu.link <- function(weight) post$a + post$b*(weight - xbar)
+weight.seq <- seq(from = 25, to = 70, by =1)
+mu <- sapply(weight.seq, mu.link)
+mu.mean <- apply(mu, 2, mean)
+mu.CI <- apply(mu, 2, PI, prob = 0.89)
+```
+
+
+```{r}
+sim.height <- sim(fit = m4.3, data=list(weight=weight.seq))
+str(sim.height)
+```
+This simulates individual heights from the population, NOT the plausible average heights, mu, as done before.
+
+```{r}
+height.PI <- apply(sim.height, 2, PI, prob = 0.89)
+```
+This is the 89% posterior prediction interval of observable heights, across weight.seq
+
+```{r}
+#plot raw data
+plot(height ~ weight, data = d2, col = col.alpha(rangi2, 0.5))
+
+#draw MAP line
+lines(x = weight.seq, y = mu.mean)
+
+#draw PI region for line
+shade(mu.PI, lim = weight.seq)
+
+#draw PI region for simulated height
+shade(height.PI, weight.seq)
+```
+
+looking at how sim() works (and also things like rnorm)
+```{r}
+post <- extract.samples(m4.3)
+weight.seq <- 25:70
+sim.height <- sapply(weight.seq, function(weight)
+  rnorm(
+    n=nrow(post),
+           mean = post$a + post$b*(weight - xbar),
+           sd = post$sigma
+  ))
+height.PI <- apply(sim.height, 2, PI, prob = 0.89)
+```
+note that sapply is used because it takes a data frame and returns a vector result back out
+lapply takes a list or data frame and returns a single value
+apply takes a data frame and applies a function to each row (1) or column (2)
+tapply applies function based on some index
+
+## Curves from Lines, polynomial regression and B-splines
+these are ways to produce curved lines in linear regressions
+
+```{r}
+library(rethinking)
+data(Howell1)
+d <- Howell1
+
+plot(height ~ weight, data = d)
+```
+Because squares and cubes get very large very quickly, they can cause issues in functions. so the best thing is to standardize your data for polynomial models. For the prior for B2, we don't want to constrain it to positive values.
+
+```{r}
+d$weight_s <- (d$weight - mean(d$weight)) / sd(d$weight) #sd's away from mean
+d$weight_s2 <- d$weight_s^2 #square it now so the quap doesn't need to do it over and over again
+m4.5 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b1*weight_s + b2*weight_s2 ,
+    a ~ dnorm(178,20),
+    b1 ~ dlnorm(0,1),
+    b2 ~ dnorm(0, 1),
+    sigma ~ dunif(0,50)
+  ), data = d
+)
+
+precis(m4.5)
+```
+This output is not easily understood, so let's plot
+
+This is calculating the mean relationship and the 89% intervals of the mean and the predictions.
+```{r}
+weight.seq <- seq(from = -2.2, to = 2, length.out = 30)
+pred_dat <- list(weight_s = weight.seq, weight_s2 = weight.seq^2)
+mu <- link(m4.5, data = pred_dat)
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI, prob = 0.89)
+sim.height <- rethinking::sim(m4.5, data = pred_dat)
+height.PI <- apply(sim.height, 2, PI, prob = 0.89)
+```
+now graphing
+```{r}
+plot( height ~ weight_s, d, col = col.alpha(rangi2,0.5))
+lines(weight.seq, mu.mean)
+shade(mu.PI, weight.seq)
+shade(height.PI, weight.seq)
+```
+
+now a cubic function:
+```{r}
+d$weight_s3 <- d$weight_s^3
+m4.6 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b1*weight_s + b2*weight_s2 + b3*weight_s3 ,
+    a ~ dnorm(178,20),
+    b1 ~ dlnorm(0,1),
+    b2 ~ dnorm(0, 10),
+    b3 ~ dnorm(0,10),
+    sigma ~ dunif(0,50)
+  ), data = d
+)
+```
+The cubic function fits the data even better, but it is geocentric. Better fit doesn't mean better model. Also there isnt any biological information guiding this model. No information behind any causal relationship between weight and height.
+Even though we have curved lines now, these are still linear models.
+
+to convert back to natural scale:
+```{r}
+plot(height ~ weight_s, d, col=col.alpha(rangi2, 0.5), xaxt="n")
+
+at <- c(-2, -1, 0 , 1, 2)
+labels <- at*sd(d$weight) + mean(d$weight)
+axis(side = 1, at = at, labels = round(labels, 1))
+```
+
+## B Splines
+
+```{r}
+library(rethinking)
+data(cherry_blossoms)
+d <- cherry_blossoms
+precis(d)
+```
+
+```{r}
+plot(doy ~ year, data = d)
+```
+
+B-splines generate new predictor variables and use those in the linear model, mu sub i. They do not directly transform the predictor by squaring or cubing like polynomial regression. Instead, they invent a series of entirely new, synthetic predictor variables, which exist only to gradually turn a specific parameter on and off withi na specific range of the real predictor variable. Each synthetic variable is called a basis function.
+
+Divide the x axis into four parts using pivot points called knots.
+Parameters called weights multiply the basis functions.
+
+To make the spline more interesting, you can add more knots and also instead of linear approxiamtions, use higher-degree polynomials.
+
+```{r}
+d2 <- d[ complete.cases(d$doy) ,] #complete cases on doy
+num_knots <- 15
+knot_list <- quantile(d2$year, prob=seq(0,1,length.out=num_knots))
+```
+
+```{r}
+library(splines)
+B <- bs(d2$year,
+        knots = knot_list[-c(1,num_knots)], #exclude first and last
+        degree=3, intercept = TRUE)
+```
+B has 17 columns 
+
+```{r}
+plot(NULL, xlim=range(d2$year), ylim=c(0,1), xlab="year", ylab = "basis")
+for (i in 1:ncol(B)) lines(d2$year, B[,i])
+```
+
+
+# Practice Problems
+
+## 4E1.
+The first line is the likelihood, which describes the sample overall. The next two lines are our priors for the parameters within the likelihood.
+
+## 4E2.
+There are two, mu and sigma.
+
+## 4E3.
+Pr(mu,sigma |y) = Normal(y | mu, sigma)Normal(mu|0, 10)Exponential(sigma|1) /
+                  double integral Normal(y | mu, sigma)Normal(mu|0, 10)Exponential(sigma|1)dmudsigma
+
+## 4E4.
+The second line, because it describes a linear function.
+
+## 4E5.
+There are three. 
+
+## 4M1.
+```{r}
+ysamp <- tibble(mu = rnorm(10000, mean = 0, sd = 10),
+                sigma = rexp(10000, rate = 1)) %>% 
+  mutate(y = rnorm(10000, mean = mu, sd = sigma))
+ysamp
+
+hist(ysamp$y)
+
+
+
+
+mu <-  rnorm(10000, mean = 0, sd = 10)
+hist(mu)
+
+sigma <-  rexp(10000, rate = 1)
+hist(sigma)
+```
+
+## 4M2.
+
+```{r}
+d <- Howell1
+model <- quap(alist(
+  height ~ dnorm(mu, sigma),
+  mu ~ dnorm(0,10),
+  sigma ~ dexp(1)),
+  data = d)
+```
+
+## 4M3.
+y ~ Normal(mu, sigma)
+mu = a + b*x
+a ~ Normal(0,10)
+b ~ Uniform(0,1)
+sigma ~ Exponential(1)
+
+## 4M4.
+y ~ Normal(mu,sigma)
+mu = height + b*year
+height ~ Normal(100, 20)
+b ~ Log-Norm(0, 1)
+sigma ~ Exponential(1)
+
+## 4M5.
+No. That should be accounted for by log-norm distribution.
+
+## 4M6.
+need to make the sigma include up to 8 as a reasonable value, but right now it is
+Exponential(1) which does not likely include that
+
+Change to Uniform(0,8)
+
+## 4M7.
+
+```{r}
+library(rethinking)
+data(Howell1); d <- Howell1; d2 <- d[d$age >= 18,]
+
+#define the average weight, x-bar
+xbar <- mean(d2$weight)
+
+# fit model
+m4.3.1 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b*(weight),
+    a ~ dnorm(178, 20),
+    b ~ dlnorm(0,1),
+    sigma ~ dunif(0,50)
+  ), data = d2
+)
+
+m4.3 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b*(weight - xbar),
+    a ~ dnorm(178, 20),
+    b ~ dlnorm(0,1),
+    sigma ~ dunif(0,50)
+  ), data = d2
+)
+```
+
+```{r}
+vcov(m4.3.1)
+vcov(m4.3)
+
+diag(vcov(m4.3.1))
+diag(vcov(m4.3))
+
+cov2cor(vcov(m4.3))
+cov2cor(vcov(m4.3.1))
+
+```
+Variances are much larger for a (height) in m4.3.1
+The covariances have also increased by several orders of magnitude in m4.3.1, but they are still pretty close to zero.
+
+```{r}
+plot(height ~ weight, data = d2, col = rangi2)
+post <- extract.samples(m4.3)
+a_map <- mean(post$a)
+b_map <- mean(post$b)
+curve(a_map + b_map*(x - xbar), add = TRUE)
+```
+
+```{r}
+plot(height ~ weight, data = d2, col = rangi2)
+post <- extract.samples(m4.3.1)
+a_map <- mean(post$a)
+b_map <- mean(post$b)
+curve(a_map + b_map*(x), add = TRUE)
+```
+Honestly not a huge difference in the graph.
+
+
+## 4M8.
